@@ -7,7 +7,7 @@ import android.os.IBinder;
 public class StockfishService extends Service {
 
     static {
-        System.loadLibrary("native-lib");
+        System.loadLibrary("stockfish-lib");
     }
 
     public StockfishService() {
@@ -18,4 +18,11 @@ public class StockfishService extends Service {
         // TODO: Return the communication channel to the service.
         throw new UnsupportedOperationException("Not yet implemented");
     }
+
+    public void engineToClient(String line) {
+
+    }
+
+    public native void clientToEngine(String line);
+
 }

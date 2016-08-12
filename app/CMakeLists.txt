@@ -6,7 +6,8 @@ file(GLOB_RECURSE engine_SRCS ./*.c*)
 
 include_directories(${ANDROID_NDK}/sources/android/support/include)
 include_directories(${ANDROID_NDK}/sources/android/ndk_helper)
+include_directories(${CMAKE_SOURCE_DIR}/src/main/cpp)
 
-add_library(native-lib SHARED ${engine_SRCS})
+add_library(stockfish-lib SHARED ${engine_SRCS})
 
-target_link_libraries(native-lib log)
+target_link_libraries(stockfish-lib log)
