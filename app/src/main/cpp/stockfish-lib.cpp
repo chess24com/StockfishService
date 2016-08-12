@@ -90,7 +90,7 @@ void engine_wrapper::startEngine() {
 void engine_wrapper::thread_loop() {
     engine_is_running = true;
 
-    char* argv = "uci";
+    char* argv = "stockfish_engine";
 
     UCI::loop(1, &argv);
 
