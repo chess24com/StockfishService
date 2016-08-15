@@ -10,6 +10,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR  , LOG_TAG,__VA_ARGS__)
 
 #include <string>
+#include <vector>
 #include <iostream>
 #include <thread>
 #include <algorithm>
@@ -65,7 +66,8 @@ public:
     jobject service_object = nullptr;
     JavaVM* vm = nullptr;
     // input handling
-    std::string input_line;
+    std::deque<std::string> input_lines;
+    std::string output_line;
     std::thread engine_thread;
     std::mutex mutex;
     std::condition_variable condition_variable;
@@ -105,13 +107,22 @@ public:
     std::streamsize write(const char* s, std::streamsize n)
     {
         engine_wrapper& engine = engine_wrapper::sharedEngine();
+        std::string tmp = std::string(s, n);
+        std::size_t index = tmp.find("\n");
+        if (index == std::string::npos) {
+            engine.output_line += tmp;
+            return n;
+        }
+        engine.output_line += tmp.substr(0, index);
+
+        // send line to Java
         JNIEnv* jenv;
         engine.vm->AttachCurrentThread(&jenv, NULL);
-        std::string tmp = std::string(s, n);
-        jstring args = jenv->NewStringUTF(tmp.c_str());
+        jstring args = jenv->NewStringUTF(engine.output_line.c_str());
         jenv->CallVoidMethod(engine.service_object, engine.output_method, args);
         jenv->DeleteLocalRef(args);
         engine.vm->DetachCurrentThread();
+        engine.output_line = tmp.substr(index + 1);
         return n;
     }
 };
@@ -125,10 +136,14 @@ public:
     {
         engine_wrapper& engine = engine_wrapper::sharedEngine();
         std::unique_lock<std::mutex> lk(engine.mutex);
-        engine.condition_variable.wait(lk, [&] {return (engine.input_line.length() > 0);});
-        std::copy(engine.input_line.begin(), engine.input_line.end(), s);
-        size_t len = engine.input_line.length();
-        engine.input_line.clear();
+        engine.condition_variable.wait(lk, [&] {return (engine.input_lines.size() > 0);});
+        std::size_t len = std::min(engine.input_lines.front().length(), n);
+        std::copy(engine.input_lines.front().begin(), engine.input_lines.front().begin() + len, s);
+        if (len == engine.input_lines.front().length()) {
+            engine.input_lines.pop_front();
+            return len;
+        }
+        engine.input_lines.front() = engine.input_lines.front().substr(len);
         return len;
     }
 };
@@ -180,10 +195,10 @@ JNIEXPORT void JNICALL Java_de_cisha_stockfishservice_StockfishService_clientToE
         engine.startEngine();
     }
     {
-        std::lock_guard<std::mutex> lk(engine.mutex);
         jboolean is_copy;
         const char* line_str = env->GetStringUTFChars(line, &is_copy);
-        engine.input_line = std::string(line_str);
+        std::lock_guard<std::mutex> lk(engine.mutex);
+        engine.input_lines.emplace_back(line_str);
         env->ReleaseStringUTFChars(line, line_str);
     }
     engine.condition_variable.notify_one();
