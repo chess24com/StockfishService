@@ -28,7 +28,7 @@
 #include "syzygy/tbprobe.h"
 
 
-namespace stockfish {
+namespace stockfishservice {
 
 class engine_wrapper {
     engine_wrapper() {}
@@ -137,7 +137,7 @@ public:
         engine_wrapper& engine = engine_wrapper::sharedEngine();
         std::unique_lock<std::mutex> lk(engine.mutex);
         engine.condition_variable.wait(lk, [&] {return (engine.input_lines.size() > 0);});
-        std::size_t len = std::min(engine.input_lines.front().length(), n);
+        std::size_t len = std::min(engine.input_lines.front().length(), (std::size_t)n);
         std::copy(engine.input_lines.front().begin(), engine.input_lines.front().begin() + len, s);
         if (len == engine.input_lines.front().length()) {
             engine.input_lines.pop_front();
