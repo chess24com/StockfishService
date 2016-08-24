@@ -43,17 +43,6 @@ public class StockfishService extends Service {
     }
 
     @Override
-    public void onCreate() {
-        super.onCreate();
-        clientToEngine("uci\n");
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-    }
-
-    @Override
     public IBinder onBind(Intent intent) {
         return mMessenger.getBinder();
     }
@@ -72,6 +61,6 @@ public class StockfishService extends Service {
         }
     }
 
-    public native void clientToEngine(String line);
+    public static native void clientToEngine(String line);
 
 }

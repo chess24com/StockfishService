@@ -15,7 +15,10 @@
 #include <thread>
 #include <algorithm>
 #include <boost/iostreams/categories.hpp>
+#include <boost/iostreams/concepts.hpp>
 #include <boost/iostreams/stream_buffer.hpp>
+#include <streambuf>
+
 
 // Stockfish
 #include "bitboard.h"
@@ -27,17 +30,17 @@
 #include "uci.h"
 #include "syzygy/tbprobe.h"
 
-
 namespace stockfishservice {
 
 class engine_wrapper {
-    engine_wrapper() {}
+    engine_wrapper() { }
+
     ~engine_wrapper() {
         if (engine_thread.joinable()) {
             engine_thread.join();
         }
         if (service_object) {
-            JNIEnv* jenv;
+            JNIEnv *jenv;
             vm->AttachCurrentThread(&jenv, NULL);
             jenv->DeleteGlobalRef(service_object);
             vm->DetachCurrentThread();
@@ -45,8 +48,9 @@ class engine_wrapper {
     }
 
     void thread_loop();
+
 public:
-    static engine_wrapper& sharedEngine() {
+    static engine_wrapper &sharedEngine() {
         static engine_wrapper engineWrapper;
         return engineWrapper;
     }
@@ -54,26 +58,32 @@ public:
     void startEngine();
 
     // delete copy and move constructors and assign operators
-    engine_wrapper(engine_wrapper const&) = delete;             // Copy construct
-    engine_wrapper(engine_wrapper&&) = delete;                  // Move construct
-    engine_wrapper& operator=(engine_wrapper const&) = delete;  // Copy assign
-    engine_wrapper& operator=(engine_wrapper &&) = delete;      // Move assign
+    engine_wrapper(engine_wrapper const &) = delete;             // Copy construct
+    engine_wrapper(engine_wrapper &&) = delete;                  // Move construct
+    engine_wrapper &operator=(engine_wrapper const &) = delete;  // Copy assign
+    engine_wrapper &operator=(engine_wrapper &&) = delete;      // Move assign
 
     // ALL PUBLIC
     bool engine_is_running = false;
+    std::mutex startup_mutex;
+    std::condition_variable startup_cv;
     // output handling
+    std::string output_line;
     jmethodID output_method = nullptr;
     jobject service_object = nullptr;
-    JavaVM* vm = nullptr;
+    JavaVM *vm = nullptr;
     // input handling
     std::deque<std::string> input_lines;
-    std::string output_line;
     std::thread engine_thread;
     std::mutex mutex;
     std::condition_variable condition_variable;
 };
 
 void engine_wrapper::startEngine() {
+    engine_thread = std::thread(&engine_wrapper::thread_loop, this);
+}
+
+void engine_wrapper::thread_loop() {
     UCI::init(Options);
     PSQT::init();
     Bitboards::init();
@@ -86,17 +96,19 @@ void engine_wrapper::startEngine() {
     Tablebases::init(Options["SyzygyPath"]);
     TT.resize(Options["Hash"]);
 
-    engine_thread = std::thread(&engine_wrapper::thread_loop, this);
-}
+    LOGE("going into UCI::loop");
 
-void engine_wrapper::thread_loop() {
-    engine_is_running = true;
-
-    char* argv = "stockfish_engine";
-
-    UCI::loop(1, &argv);
+    char *argv = "stockfish_engine";
+    {
+        UCI::loop(1, &argv);
+    }
 
     Threads.exit();
+    {
+        std::lock_guard<std::mutex> lk(startup_mutex);
+        LOGE("engine is stopped");
+        engine_is_running = false;
+    }
 }
 
 class jni_sink {
@@ -104,9 +116,9 @@ public:
     typedef char char_type;
     typedef boost::iostreams::sink_tag category;
 
-    std::streamsize write(const char* s, std::streamsize n)
-    {
-        engine_wrapper& engine = engine_wrapper::sharedEngine();
+    std::streamsize write(const char_type *s, std::streamsize n) {
+        LOGE("at jni_sink");
+        engine_wrapper &engine = engine_wrapper::sharedEngine();
         std::string tmp = std::string(s, n);
         std::size_t index = tmp.find("\n");
         if (index == std::string::npos) {
@@ -116,7 +128,7 @@ public:
         engine.output_line += tmp.substr(0, index);
 
         // send line to Java
-        JNIEnv* jenv;
+        JNIEnv *jenv;
         engine.vm->AttachCurrentThread(&jenv, NULL);
         jstring args = jenv->NewStringUTF(engine.output_line.c_str());
         jenv->CallVoidMethod(engine.service_object, engine.output_method, args);
@@ -127,17 +139,36 @@ public:
     }
 };
 
-class jni_source {
-public:
-    typedef char char_type;
-    typedef boost::iostreams::source_tag category;
 
-    std::streamsize read(char* s, std::streamsize n)
-    {
-        engine_wrapper& engine = engine_wrapper::sharedEngine();
+class jni_source_boost : public boost::iostreams::source {
+public:
+    std::streamsize read(char_type *s, std::streamsize n) {
+        LOGE("at jni_source");
+        if (n == 0) {
+            LOGE("requested streamsize is 0");
+            return -1;
+        }
+        engine_wrapper &engine = engine_wrapper::sharedEngine();
+        LOGE("jni_source waiting");
         std::unique_lock<std::mutex> lk(engine.mutex);
-        engine.condition_variable.wait(lk, [&] {return (engine.input_lines.size() > 0);});
-        std::size_t len = std::min(engine.input_lines.front().length(), (std::size_t)n);
+        LOGE("input mtx locked");
+        if (!engine.engine_is_running) {
+            {
+                LOGE("engine was not running");
+                std::lock_guard<std::mutex> lk(engine.startup_mutex);
+                LOGE("startup mtx locked");
+                engine.engine_is_running = true;
+            }
+            engine.startup_cv.notify_all();
+            LOGE("startup waiters are notified");
+        }
+        LOGE("waiting for input");
+        engine.condition_variable.wait(lk, [&] { return (engine.input_lines.size() > 0); });
+        LOGE("jni_source got input");
+        std::streamsize len = std::min((std::streamsize)engine.input_lines.front().length(), n);
+        // std::streamsize len = engine.input_lines.front().length();
+        LOGE("length of input : %lu", len);
+        LOGE("input: %s", engine.input_lines.front().c_str());
         std::copy(engine.input_lines.front().begin(), engine.input_lines.front().begin() + len, s);
         if (len == engine.input_lines.front().length()) {
             engine.input_lines.pop_front();
@@ -148,15 +179,20 @@ public:
     }
 };
 
+} // namespace
 
-// ==================
 // JNI
 // ==================
+// ==================
 
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
-{
-    JNIEnv* jenv;
-    if (vm->GetEnv(reinterpret_cast<void**>(&jenv), JNI_VERSION_1_6) != JNI_OK) {
+extern "C" {
+
+boost::iostreams::stream_buffer<stockfishservice::jni_sink> sink_buf;
+boost::iostreams::stream_buffer<stockfishservice::jni_source> source_buf;
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    JNIEnv *jenv;
+    if (vm->GetEnv(reinterpret_cast<void **>(&jenv), JNI_VERSION_1_6) != JNI_OK) {
         return -1;
     }
 
@@ -169,15 +205,13 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
     if (engineToClient == 0) {
         LOGE("method engineToClient not found");
     }
-
-    engine_wrapper& engine = engine_wrapper::sharedEngine();
+    LOGE("creating sharedEngine()");
+    stockfishservice::engine_wrapper &engine = stockfishservice::engine_wrapper::sharedEngine();
     engine.output_method = engineToClient;
     engine.vm = vm;
 
     jenv->DeleteLocalRef(clazz);
-
-    boost::iostreams::stream_buffer<jni_sink> sink_buf;
-    boost::iostreams::stream_buffer<jni_sink> source_buf;
+    LOGE("redirecting cout and cin");
 
     std::cin.rdbuf(&source_buf);
     std::cout.rdbuf(&sink_buf);
@@ -186,28 +220,39 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 }
 
 
-JNIEXPORT void JNICALL Java_de_cisha_stockfishservice_StockfishService_clientToEngine(JNIEnv* env, jobject thiz, jstring line) {
-    engine_wrapper& engine = engine_wrapper::sharedEngine();
+JNIEXPORT void JNICALL Java_de_cisha_stockfishservice_StockfishService_clientToEngine(JNIEnv *env,
+                                                                                      jobject thiz,
+                                                                                      jstring line) {
+    LOGE("at clientToEngine");
+    stockfishservice::engine_wrapper &engine = stockfishservice::engine_wrapper::sharedEngine();
     if (!engine.service_object) {
+        LOGE("setting Java Service object");
         engine.service_object = env->NewGlobalRef(thiz);
     }
     if (!engine.engine_is_running) {
+        LOGE("calling startEngine()");
         engine.startEngine();
+        {
+            std::unique_lock<std::mutex> ul(engine.startup_mutex);
+            LOGE("waiting for the end of engine startup");
+            engine.startup_cv.wait(ul, [&] {return engine.engine_is_running;});
+            LOGE("engine startup wait is over");
+        }
     }
     {
         jboolean is_copy;
-        const char* line_str = env->GetStringUTFChars(line, &is_copy);
+        LOGE("getting input line from Java");
+        const char *line_str = env->GetStringUTFChars(line, &is_copy);
         std::lock_guard<std::mutex> lk(engine.mutex);
+        LOGE("inserting cmd line to queue");
         engine.input_lines.emplace_back(line_str);
         env->ReleaseStringUTFChars(line, line_str);
     }
+    LOGE("waking up reader thread");
     engine.condition_variable.notify_one();
 }
 
-
-
-
-} // namespace
+} // extern "C"
 
 
 
