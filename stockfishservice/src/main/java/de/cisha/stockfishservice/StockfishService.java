@@ -7,12 +7,12 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.os.Messenger;
-import android.os.Parcel;
 import android.os.RemoteException;
-
-import static android.R.attr.data;
+import android.util.Log;
 
 public class StockfishService extends Service {
+
+    private static final String TAG = "StockfishService";
 
     static {
         System.loadLibrary("stockfish-lib");
@@ -28,6 +28,11 @@ public class StockfishService extends Service {
         @Override
         public void handleMessage(Message msg) {
             mClient = msg.replyTo;
+            if (mClient == null) {
+                Log.e(TAG, "msg.replyTo is null");
+                super.handleMessage(msg);
+                return;
+            }
             Bundle data = msg.peekData();
             if (data == null) {
                 super.handleMessage(msg);
@@ -47,20 +52,31 @@ public class StockfishService extends Service {
         return mMessenger.getBinder();
     }
 
-    public void engineToClient(String line) {
+    /**
+     * Called from Native code.
+     * @param line a line sent by the engine
+     */
+    public void engineToClient(final String line) {
+        Log.v(TAG, "At engineToClient.");
         if (mClient != null) {
             Bundle bundle = new Bundle();
+            bundle.setClassLoader(Thread.currentThread().getContextClassLoader());
             bundle.putString(MSG_KEY, line);
             Message msg = Message.obtain();
             msg.setData(bundle);
             try {
                 mClient.send(msg);
             } catch (RemoteException e) {
+                Log.d(TAG, "Client is not reachable.");
                 mClient = null;
             }
         }
     }
 
-    public static native void clientToEngine(String line);
+    /**
+     * Implemented in native code. Call this to send commands to the engine.
+     * @param line a command line to be sent to the engine
+     */
+    public native void clientToEngine(final String line);
 
 }

@@ -14,9 +14,6 @@
 #include <iostream>
 #include <thread>
 #include <algorithm>
-#include <boost/iostreams/categories.hpp>
-#include <boost/iostreams/concepts.hpp>
-#include <boost/iostreams/stream_buffer.hpp>
 #include <streambuf>
 
 
@@ -84,6 +81,7 @@ void engine_wrapper::startEngine() {
 }
 
 void engine_wrapper::thread_loop() {
+    LOGV("Initializing stockfish");
     UCI::init(Options);
     PSQT::init();
     Bitboards::init();
@@ -96,12 +94,10 @@ void engine_wrapper::thread_loop() {
     Tablebases::init(Options["SyzygyPath"]);
     TT.resize(Options["Hash"]);
 
-    LOGE("going into UCI::loop");
+    LOGV("Going into UCI::loop");
 
     char *argv = "stockfish_engine";
-    {
-        UCI::loop(1, &argv);
-    }
+    UCI::loop(1, &argv);
 
     Threads.exit();
     {
@@ -111,71 +107,88 @@ void engine_wrapper::thread_loop() {
     }
 }
 
-class jni_sink {
-public:
-    typedef char char_type;
-    typedef boost::iostreams::sink_tag category;
-
-    std::streamsize write(const char_type *s, std::streamsize n) {
-        LOGE("at jni_sink");
-        engine_wrapper &engine = engine_wrapper::sharedEngine();
-        std::string tmp = std::string(s, n);
-        std::size_t index = tmp.find("\n");
-        if (index == std::string::npos) {
-            engine.output_line += tmp;
-            return n;
+class jni_sink : public std::streambuf {
+protected:
+    virtual int_type overflow(int_type c) {
+        if (c == EOF) {
+            return c;
         }
-        engine.output_line += tmp.substr(0, index);
-
-        // send line to Java
+        engine_wrapper &engine = engine_wrapper::sharedEngine();
+        if (isprint(c)) {
+            engine.output_line += c;
+            return c;
+        }
+        if (c != '\n') {
+            return EOF;
+        }
+        if (engine.output_line.length() == 0) {
+            return c;
+        }
+        engine.output_line += c;
+        LOGV("sending line : %s to Java", engine.output_line.c_str());
         JNIEnv *jenv;
-        engine.vm->AttachCurrentThread(&jenv, NULL);
+        jint result = engine.vm->AttachCurrentThread(&jenv, NULL);
+        if (result != 0) {
+            LOGE("attaching to JVM failed");
+            engine.output_line = "";
+            return c;
+        }
         jstring args = jenv->NewStringUTF(engine.output_line.c_str());
         jenv->CallVoidMethod(engine.service_object, engine.output_method, args);
         jenv->DeleteLocalRef(args);
-        engine.vm->DetachCurrentThread();
-        engine.output_line = tmp.substr(index + 1);
-        return n;
+        result = engine.vm->DetachCurrentThread();
+        if (result != 0) {
+            LOGE("detaching from JVM failed");
+            return EOF;
+        }
+        engine.output_line = "";
+        return c;
     }
 };
 
-
-class jni_source_boost : public boost::iostreams::source {
+class jni_source : public std::streambuf {
+    char buffer[1001]; // 1 char putback area
 public:
-    std::streamsize read(char_type *s, std::streamsize n) {
-        LOGE("at jni_source");
-        if (n == 0) {
-            LOGE("requested streamsize is 0");
-            return -1;
+    jni_source() {
+        setg(buffer + 1, buffer + 1, buffer + 1);
+    }
+
+protected:
+    virtual int_type underflow() {
+        if (gptr() < egptr()) {
+            return traits_type::to_int_type(*gptr());
         }
+
+        int numPutBack = std::min(gptr() - eback(), 1);
+
+        std::memmove(buffer + (1 - numPutBack), gptr() - numPutBack, numPutBack);
+
         engine_wrapper &engine = engine_wrapper::sharedEngine();
-        LOGE("jni_source waiting");
+        LOGV("Locking input mutex in jni_source");
         std::unique_lock<std::mutex> lk(engine.mutex);
-        LOGE("input mtx locked");
         if (!engine.engine_is_running) {
             {
-                LOGE("engine was not running");
+                LOGV("Engine was not running.");
                 std::lock_guard<std::mutex> lk(engine.startup_mutex);
-                LOGE("startup mtx locked");
                 engine.engine_is_running = true;
             }
             engine.startup_cv.notify_all();
-            LOGE("startup waiters are notified");
+            LOGV("Notifying engine startup waiters.");
         }
-        LOGE("waiting for input");
+        LOGV("Start waiting for input...");
         engine.condition_variable.wait(lk, [&] { return (engine.input_lines.size() > 0); });
-        LOGE("jni_source got input");
-        std::streamsize len = std::min((std::streamsize)engine.input_lines.front().length(), n);
-        // std::streamsize len = engine.input_lines.front().length();
-        LOGE("length of input : %lu", len);
-        LOGE("input: %s", engine.input_lines.front().c_str());
-        std::copy(engine.input_lines.front().begin(), engine.input_lines.front().begin() + len, s);
+        LOGV("Input arrived to jni_source.");
+        int len = std::min((int)engine.input_lines.front().length(), 1000);
+        LOGD("Input: %s", engine.input_lines.front().c_str());
+        std::copy(engine.input_lines.front().begin(), engine.input_lines.front().begin() + len, buffer + 1);
         if (len == engine.input_lines.front().length()) {
             engine.input_lines.pop_front();
-            return len;
+        } else {
+            engine.input_lines.front() = engine.input_lines.front().substr(len);
         }
-        engine.input_lines.front() = engine.input_lines.front().substr(len);
-        return len;
+
+        setg(buffer + (1 - numPutBack), buffer + 1, buffer + 1 + len);
+        return traits_type::to_int_type(*gptr());
     }
 };
 
@@ -187,8 +200,8 @@ public:
 
 extern "C" {
 
-boost::iostreams::stream_buffer<stockfishservice::jni_sink> sink_buf;
-boost::iostreams::stream_buffer<stockfishservice::jni_source> source_buf;
+stockfishservice::jni_sink sink_buf;
+stockfishservice::jni_source source_buf;
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     JNIEnv *jenv;
@@ -205,13 +218,13 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     if (engineToClient == 0) {
         LOGE("method engineToClient not found");
     }
-    LOGE("creating sharedEngine()");
+    LOGV("Creating sharedEngine()");
     stockfishservice::engine_wrapper &engine = stockfishservice::engine_wrapper::sharedEngine();
     engine.output_method = engineToClient;
     engine.vm = vm;
 
     jenv->DeleteLocalRef(clazz);
-    LOGE("redirecting cout and cin");
+    LOGV("redirecting cout and cin");
 
     std::cin.rdbuf(&source_buf);
     std::cout.rdbuf(&sink_buf);
@@ -223,32 +236,30 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 JNIEXPORT void JNICALL Java_de_cisha_stockfishservice_StockfishService_clientToEngine(JNIEnv *env,
                                                                                       jobject thiz,
                                                                                       jstring line) {
-    LOGE("at clientToEngine");
+    LOGV("At clientToEngine.");
     stockfishservice::engine_wrapper &engine = stockfishservice::engine_wrapper::sharedEngine();
     if (!engine.service_object) {
-        LOGE("setting Java Service object");
+        LOGV("Setting Java Service object.");
         engine.service_object = env->NewGlobalRef(thiz);
     }
     if (!engine.engine_is_running) {
-        LOGE("calling startEngine()");
+        LOGV("Calling startEngine().");
         engine.startEngine();
         {
             std::unique_lock<std::mutex> ul(engine.startup_mutex);
-            LOGE("waiting for the end of engine startup");
+            LOGV("Waiting for engine startup.");
             engine.startup_cv.wait(ul, [&] {return engine.engine_is_running;});
-            LOGE("engine startup wait is over");
+            LOGV("Engine startup wait is over.");
         }
     }
     {
         jboolean is_copy;
-        LOGE("getting input line from Java");
         const char *line_str = env->GetStringUTFChars(line, &is_copy);
         std::lock_guard<std::mutex> lk(engine.mutex);
-        LOGE("inserting cmd line to queue");
         engine.input_lines.emplace_back(line_str);
         env->ReleaseStringUTFChars(line, line_str);
     }
-    LOGE("waking up reader thread");
+    LOGV("Waking up reader thread.");
     engine.condition_variable.notify_one();
 }
 
