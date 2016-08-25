@@ -23,7 +23,7 @@ Your Application's *onCreate()* (not Activity!) will be called for the remote se
 
 ## Details
 
-Stockfish uses *std::cin* and *std::cout* to communicate. This library creates two specialized *std::streambuf* objects and redirects *std::cin* and *std::cout* to and from Java through JNI calls. In general you code should not deal with this at all.
+Stockfish uses *std::cin* and *std::cout* to communicate. This library creates two specialized *std::streambuf* objects and redirects *std::cin* and *std::cout* to and from Java through JNI calls. In general your code should not deal with this at all.
 
 
 
