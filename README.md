@@ -1,5 +1,5 @@
 # StockfishService
-Stockfish packaged into a remote Android Service. For usage please see [StockfishServiceTest](https://github.com/chess24com/StockfishServiceTest).
+Stockfish packaged into a remote Android Service. For usage please go to [StockfishServiceTest](https://github.com/chess24com/StockfishServiceTest).
 
 Embedded Stockfish's commit : **8abb98455f6fa78092f650b8bae9c166f1b5a315**
 
@@ -15,15 +15,19 @@ This is an Android Library Module. It was designed to be easily added to any And
 
 ## Caveats
 
-Stockfish was not designed to survive a *quit* uci command. It doesn't clean up after itself. Sending a *quit* command stops the engine correctly, but you shouldn't call any commands after that. In case you want to kill the engine, just unbind and rebind to the remote service.
+Stockfish was not designed to survive a *quit* uci command. It uses global variables and doesn't clean up after itself. Sending a *quit* command stops the engine, but you shouldn't call any commands after that. In case you want to restart the engine, just unbind and rebind to the remote service.
 
-While it being a *remote* service prevents to take down your app in case stockfish crashes. Due to an Android bug the user will still see a dialog saying your app crashed. You should vote for my bug report for this. TODO add bug report link.
+While it being a *remote* service prevents to take down your app in case stockfish crashes, due to an Android bug the user will still see a dialog saying your app crashed. You should vote for my bug report for this. TODO add bug report link.
 
-Your Application's *onCreate()* (not Activity!) will be called for the remote service too, because each process has an Application object. You can differentiate between the two processes by checking for the current process's name.
+Your Application's *onCreate()* (not Activity!) will be called for the remote service too, because each process has an associated Application object. You can differentiate between the two processes by checking for the current process's name.
 
 ## Details
 
-Stockfish uses *std::cin* and *std::cout* to communicate. This library creates two specialized *std::streambuf* objects and redirects *std::cin* and *std::cout* to and from Java through JNI calls. In general your code should not deal with this at all.
+Stockfish uses *std::cin* and *std::cout* to communicate. This is hardcoded. This wrapper library creates two specialized *std::streambuf* objects and redirects *std::cin* and *std::cout* to and from Java through JNI calls. In general your code should not deal with this at all. But it's good to know.
+
+## Proguard
+
+Haven't checked yet. One java method is called only from C++ so that should be kept. Obfuscation should also be turned off for the Service class. Will update with a snippet as soon as I will have time to test it.
 
 
 
