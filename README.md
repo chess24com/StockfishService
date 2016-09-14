@@ -27,7 +27,7 @@ Stockfish uses *std::cin* and *std::cout* to communicate. This is hardcoded. Thi
 
 ## Proguard
 
-Haven't checked yet. One java method is called only from C++ so that should be kept. Obfuscation should also be turned off for the Service class. Will update with a snippet as soon as I will have time to test it.
+One java method is called only from C++ so that should be kept. Obfuscation should also be turned off for the Service class to not mess up the JNI lookups. Will update with a configuration snippet as soon as I will have time to test it.
 
 
 
