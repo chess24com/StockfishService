@@ -1,7 +1,7 @@
 # StockfishService
 Stockfish packaged into a remote Android Service. For usage please go to [StockfishServiceTest](https://github.com/chess24com/StockfishServiceTest).
 
-Embedded Stockfish's commit : **8abb98455f6fa78092f650b8bae9c166f1b5a315**
+Embedded Stockfish's commit : **3ab3e55bb5faf57aec864f3bb7268601c11d72be**
 
 ## General information
 
