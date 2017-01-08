@@ -3,8 +3,6 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/StockfishService.iml" filepath="$PROJECT_DIR$/StockfishService.iml" />
-      <module fileurl="file://$PROJECT_DIR$/StockfishService.iml" filepath="$PROJECT_DIR$/StockfishService.iml" />
-      <module fileurl="file://$PROJECT_DIR$/stockfishservice/stockfishservice.iml" filepath="$PROJECT_DIR$/stockfishservice/stockfishservice.iml" />
       <module fileurl="file://$PROJECT_DIR$/stockfishservice/stockfishservice.iml" filepath="$PROJECT_DIR$/stockfishservice/stockfishservice.iml" />
     </modules>
   </component>

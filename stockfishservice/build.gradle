@@ -1,11 +1,11 @@
 apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion 24
-    buildToolsVersion "24.0.1"
+    compileSdkVersion 25
+    buildToolsVersion "25.0.2"
     defaultConfig {
         minSdkVersion 16
-        targetSdkVersion 24
+        targetSdkVersion 25
         versionCode 1
         versionName "1.0"
 
@@ -14,8 +14,9 @@ android {
         externalNativeBuild {
             cmake {
                 abiFilters 'x86', 'x86_64', 'armeabi', 'armeabi-v7a', 'arm64-v8a'
-                arguments "-DANDROID_TOOLCHAIN=clang", "-DANDROID_STL=c++_static"
-                cppFlags "-std=c++11 -frtti -fexceptions -DNDEBUG"
+                arguments "-DANDROID_TOOLCHAIN=clang", "-DANDROID_STL=c++_static",
+                        "-DANDROID_PLATFORM=android-16", "-DANDROID_CPP_FEATURES=exceptions"
+                cppFlags "-std=c++11", "-frtti", "-fexceptions", "-DNDEBUG"
             }
         }
     }
@@ -37,6 +38,6 @@ dependencies {
     androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
         exclude group: 'com.android.support', module: 'support-annotations'
     })
-    compile 'com.android.support:appcompat-v7:24.1.1'
+    compile 'com.android.support:appcompat-v7:25.1.0'
     testCompile 'junit:junit:4.12'
 }

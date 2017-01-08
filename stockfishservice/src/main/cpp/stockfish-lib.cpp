@@ -15,17 +15,21 @@
 #include <thread>
 #include <algorithm>
 #include <streambuf>
+#include <cstddef>
 
 
 // Stockfish
 #include "bitboard.h"
-#include "evaluate.h"
 #include "position.h"
 #include "search.h"
 #include "thread.h"
 #include "tt.h"
 #include "uci.h"
 #include "syzygy/tbprobe.h"
+
+namespace PSQT {
+    void init();
+}
 
 namespace stockfishservice {
 
@@ -82,13 +86,13 @@ void engine_wrapper::startEngine() {
 
 void engine_wrapper::thread_loop() {
     LOGV("Initializing stockfish");
+
     UCI::init(Options);
     PSQT::init();
     Bitboards::init();
     Position::init();
     Bitbases::init();
     Search::init();
-    Eval::init();
     Pawns::init();
     Threads.init();
     Tablebases::init(Options["SyzygyPath"]);
@@ -159,7 +163,7 @@ protected:
             return traits_type::to_int_type(*gptr());
         }
 
-        int numPutBack = std::min(gptr() - eback(), 1);
+        int numPutBack = std::min(gptr() - eback(), (std::ptrdiff_t)1);
 
         std::memmove(buffer + (1 - numPutBack), gptr() - numPutBack, numPutBack);
 
