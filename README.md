@@ -18,7 +18,7 @@ Stockfish was not designed to survive a *quit* uci command. It uses global varia
 
 While it being a *remote* service prevents to take down your app in case stockfish crashes, due to an Android bug the user will still see a dialog saying your app crashed. You should vote for my bug report for this. TODO add bug report link.
 
-Your Application's *onCreate()* (not Activity!) will be called for the remote service too, because each process has an associated Application object. You can differentiate between the two processes by checking for the current process's name.
+Your Application's *onCreate()* (not Activity!) will be called for the remote service too, because each process has an associated Application object. You can differentiate between the two processes by checking for the current process's name. For details check out [StockfishServiceTest](https://github.com/chess24com/StockfishServiceTest).
 
 ## Details
 
