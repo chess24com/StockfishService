@@ -8,7 +8,6 @@ Embedded Stockfish's commit : **3ab3e55bb5faf57aec864f3bb7268601c11d72be**
 This library enables the use of stockfish on Android.
 
 It minimally patches the upstream code: 
-* renamed *tbcore.cpp* -> *tbcore.hpp* (also in it's include references)
 * removed *main.cpp* (it's contents went to *stockfish-lib.cpp*)
 
 This is an Android Library Module. It was designed to be easily added to any Android Studio project. It runs in its own process. Your code should communicate with it through a [Messenger](https://developer.android.com/reference/android/os/Messenger.html) class. It was designed to be started by *binding* not by calling *startService*. For details please check out the sample app [StockfishServiceTest](https://github.com/chess24com/StockfishServiceTest).
